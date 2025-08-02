@@ -374,18 +374,29 @@ fn xxh3_len_0to16_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
             read_u64_le(&secret[72..]) ^ seed,
         )
     } else if len <= 8 {
-        let hash64 = xxh3_len_0to16_64b(data, secret, seed);
+        // For 1-8 bytes, use a different approach than XXH3_64
+        let input_lo = if len >= 4 { read_u32_le(&data[0..]) as u64 } else { data[0] as u64 };
+        let input_hi = if len >= 4 { read_u32_le(&data[len.saturating_sub(4)..]) as u64 } else { data[len-1] as u64 };
+        
+        let bitflipl = (read_u64_le(&secret[64..]) ^ read_u64_le(&secret[72..])).wrapping_add(seed);
+        let bitfliph = (read_u64_le(&secret[80..]) ^ read_u64_le(&secret[88..])).wrapping_sub(seed);
+        
+        let keyed_lo = input_lo ^ bitflipl;
+        let keyed_hi = input_hi ^ bitfliph;
+        
         XXH128Hash::new(
-            hash64 ^ (read_u64_le(&secret[64..]).wrapping_add(seed)),
-            hash64 ^ (read_u64_le(&secret[72..]).wrapping_sub(seed)),
+            xxh3_avalanche(keyed_lo),
+            xxh3_avalanche(keyed_hi),
         )
     } else {
+        // For 9-16 bytes, use the same approach as XXH3_64 but with different secret offsets
         let input_lo = read_u64_le(&data[0..]);
         let input_hi = read_u64_le(&data[len - 8..]);
         let bitflipl = (read_u64_le(&secret[24..]) ^ read_u64_le(&secret[32..])).wrapping_add(seed);
         let bitfliph = (read_u64_le(&secret[40..]) ^ read_u64_le(&secret[48..])).wrapping_sub(seed);
         let keyed_lo = input_lo ^ bitflipl;
         let keyed_hi = input_hi ^ bitfliph;
+        
         XXH128Hash::new(
             xxh3_avalanche(keyed_lo),
             xxh3_avalanche(keyed_hi),
