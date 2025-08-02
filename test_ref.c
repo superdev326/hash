@@ -1,7 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
-#include "../xxHash/xxhash.h"
+#define XXH_STATIC_LINKING_ONLY
+#include "xxhash.h"
 
 // Test data for comparison
 const char* test_strings[] = {
