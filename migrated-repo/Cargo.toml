@@ -1,0 +1,22 @@
+[package]
+name = "xxhash_migration"
+version = "0.8.1"
+edition = "2021"
+description = "Rust migration of the xxHash extremely fast non-cryptographic hash algorithm"
+license = "BSD-2-Clause"
+repository = "https://github.com/Cyan4973/xxHash"
+authors = ["Yann Collet", "Rust Migration Team"]
+
+[dependencies]
+# No external dependencies - pure Rust implementation
+
+[dev-dependencies]
+# For testing
+
+[[bin]]
+name = "xxhash_main"
+path = "src/main.rs"
+
+[lib]
+name = "xxhash_migration"
+path = "src/lib.rs"
