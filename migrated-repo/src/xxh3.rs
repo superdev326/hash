@@ -22,14 +22,18 @@ impl XXH128Hash {
 /// XXH3 streaming state (simplified)
 #[derive(Debug, Clone)]
 pub struct XXH3State {
+    #[allow(dead_code)]
     acc: [u64; 8],
     custom_secret: Option<Vec<u8>>,
     seed: u64,
     total_len: u64,
     buffer: [u8; 256],
     buffered_size: usize,
+    #[allow(dead_code)]
     stripe_len: usize,
+    #[allow(dead_code)]
     nb_stripes_per_block: usize,
+    #[allow(dead_code)]
     nb_blocks: usize,
 }
 
@@ -239,7 +243,7 @@ fn xxh3_len_1to3_64b(data: &[u8], secret: &[u8], seed: u64) -> u64 {
     let c2 = data[len >> 1] as u32;
     let c3 = data[len - 1] as u32;
     let combined = (c1 << 16) | (c2 << 24) | (c3 << 0) | ((len as u32) << 8);
-    let bitflip = (read_u32_le(&secret[0..]) ^ read_u32_le(&secret[4..])) as u64 + seed;
+    let bitflip = ((read_u32_le(&secret[0..]) ^ read_u32_le(&secret[4..])) as u64).wrapping_add(seed);
     let keyed = (combined as u64) ^ bitflip;
     xxh64_avalanche(keyed)
 }
@@ -250,8 +254,8 @@ fn xxh3_len_4to8_64b(data: &[u8], secret: &[u8], seed: u64) -> u64 {
     let seed = seed ^ ((seed as u32).swap_bytes() as u64) << 32;
     let input1 = read_u32_le(&data[0..]) as u64;
     let input2 = read_u32_le(&data[len - 4..]) as u64;
-    let bitflip = (read_u64_le(&secret[8..]) ^ read_u64_le(&secret[16..])) - seed;
-    let input64 = input2 + (input1 << 32);
+    let bitflip = (read_u64_le(&secret[8..]) ^ read_u64_le(&secret[16..])).wrapping_sub(seed);
+    let input64 = input2.wrapping_add(input1 << 32);
     let keyed = input64 ^ bitflip;
     xxh3_rrmxmx(keyed, len as u64)
 }
@@ -259,14 +263,14 @@ fn xxh3_len_4to8_64b(data: &[u8], secret: &[u8], seed: u64) -> u64 {
 /// XXH3 length 9-16 bytes - matches C implementation
 fn xxh3_len_9to16_64b(data: &[u8], secret: &[u8], seed: u64) -> u64 {
     let len = data.len();
-    let bitflipl = (read_u64_le(&secret[24..]) ^ read_u64_le(&secret[32..])) + seed;
-    let bitfliph = (read_u64_le(&secret[40..]) ^ read_u64_le(&secret[48..])) - seed;
+    let bitflipl = (read_u64_le(&secret[24..]) ^ read_u64_le(&secret[32..])).wrapping_add(seed);
+    let bitfliph = (read_u64_le(&secret[40..]) ^ read_u64_le(&secret[48..])).wrapping_sub(seed);
     let input_lo = read_u64_le(&data[0..]);
     let input_hi = read_u64_le(&data[len - 8..]);
-    let acc = len as u64
-        + input_lo.swap_bytes()
-        + input_hi
-        + xxh3_mul128_fold64(input_lo ^ bitflipl, input_hi ^ bitfliph);
+    let acc = (len as u64)
+        .wrapping_add(input_lo.swap_bytes())
+        .wrapping_add(input_hi)
+        .wrapping_add(xxh3_mul128_fold64(input_lo ^ bitflipl, input_hi ^ bitfliph));
     xxh3_avalanche(acc)
 }
 
@@ -354,7 +358,7 @@ fn xxh3_len_0to16_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
         let hash64 = xxh3_len_0to16_64b(data, secret, seed);
         let secret_offset = len.min(secret.len().saturating_sub(8));
         XXH128Hash::new(
-            hash64 ^ (read_u64_le(&secret[secret_offset..]) + seed),
+            hash64 ^ (read_u64_le(&secret[secret_offset..]).wrapping_add(seed)),
             hash64.wrapping_mul(PRIME_MX1),
         )
     } else {
@@ -365,7 +369,7 @@ fn xxh3_len_0to16_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
         let keyed_lo = input_lo ^ bitflipl;
         let keyed_hi = input_hi ^ bitfliph;
         XXH128Hash::new(
-            xxh64_avalanche(keyed_hi + len as u64),
+            xxh64_avalanche(keyed_hi.wrapping_add(len as u64)),
             xxh64_avalanche(keyed_lo),
         )
     }
@@ -375,7 +379,7 @@ fn xxh3_len_17to128_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
     let hash64 = xxh3_len_17to128_64b(data, secret, seed);
     let secret_offset = data.len().min(secret.len().saturating_sub(8));
     XXH128Hash::new(
-        hash64 ^ (read_u64_le(&secret[secret_offset..]) + seed),
+        hash64 ^ (read_u64_le(&secret[secret_offset..]).wrapping_add(seed)),
         hash64.wrapping_mul(PRIME_MX2),
     )
 }
@@ -384,7 +388,7 @@ fn xxh3_len_129to240_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
     let hash64 = xxh3_len_129to240_64b(data, secret, seed);
     let secret_offset = (data.len() / 2).min(secret.len().saturating_sub(8));
     XXH128Hash::new(
-        hash64 ^ (read_u64_le(&secret[secret_offset..]) + seed),
+        hash64 ^ (read_u64_le(&secret[secret_offset..]).wrapping_add(seed)),
         hash64.wrapping_mul(PRIME_MX2),
     )
 }
@@ -392,7 +396,7 @@ fn xxh3_len_129to240_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
 fn xxh3_hashlong_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
     let hash64 = xxh3_hashlong_64b(data, secret, seed);
     XXH128Hash::new(
-        hash64 ^ (read_u64_le(&secret[32..]) + seed),
+        hash64 ^ (read_u64_le(&secret[32..]).wrapping_add(seed)),
         hash64.wrapping_mul(PRIME_MX2),
     )
 }
@@ -407,8 +411,8 @@ fn xxh3_mix16b(input: &[u8], secret: &[u8], seed: u64) -> u64 {
     let secret_hi = read_u64_le(&secret[8..]);
     
     xxh3_mul128_fold64(
-        input_lo ^ (secret_lo + seed),
-        input_hi ^ (secret_hi - seed),
+        input_lo ^ (secret_lo.wrapping_add(seed)),
+        input_hi ^ (secret_hi.wrapping_sub(seed)),
     )
 }
 

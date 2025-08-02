@@ -1,42 +1,63 @@
-//! # Hello World Template - xxHash Project Structure
-//! 
-//! This is a template showing the same project structure as the xxHash migration
-//! but with simple hello-world functionality for testing purposes.
+//! # Hello World Library
+//!
+//! A simple demonstration library with basic functionality and proper error handling.
+//! This template shows how to structure a Rust project with Result<T, E> error handling.
 
-pub mod error;
-pub mod constants;
+use std::fmt;
 
-pub use error::{XXHashError, XXHashResult};
+/// Custom error type for the library
+#[derive(Debug, Clone, PartialEq)]
+pub enum HelloError {
+    /// Invalid input provided
+    InvalidInput(String),
+    /// Division by zero error
+    DivisionByZero,
+    /// Item not found
+    NotFound,
+}
 
-/// Version information
-pub const VERSION: &str = "0.8.1";
+impl fmt::Display for HelloError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HelloError::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
+            HelloError::DivisionByZero => write!(f, "Division by zero"),
+            HelloError::NotFound => write!(f, "Item not found"),
+        }
+    }
+}
 
-/// Simple hello world function
+impl std::error::Error for HelloError {}
+
+/// Result type for this library
+pub type HelloResult<T> = Result<T, HelloError>;
+
+/// Returns a friendly greeting
 pub fn hello_world() -> String {
     "Hello, World!".to_string()
 }
 
-/// Simple function with error handling
-pub fn greet_user(name: Option<&str>) -> XXHashResult<String> {
-    match name {
-        Some(n) if !n.is_empty() => Ok(format!("Hello, {}!", n)),
-        Some(_) => Err(XXHashError::InvalidInputLength(0)),
-        None => Ok("Hello, Anonymous!".to_string()),
+/// Greets a specific user with proper validation
+pub fn greet_user(name: &str) -> HelloResult<String> {
+    if name.trim().is_empty() {
+        return Err(HelloError::InvalidInput("Name cannot be empty".to_string()));
     }
+    Ok(format!("Hello, {}!", name.trim()))
 }
 
-/// Function that demonstrates Result<T,E> usage
-pub fn safe_divide(a: f64, b: f64) -> XXHashResult<f64> {
+/// Safely divides two numbers with error handling
+pub fn safe_divide(a: f64, b: f64) -> HelloResult<f64> {
     if b == 0.0 {
-        Err(XXHashError::OperationFailed("Division by zero".to_string()))
+        Err(HelloError::DivisionByZero)
     } else {
         Ok(a / b)
     }
 }
 
-/// Function that demonstrates Option<T> usage
-pub fn find_item(items: &[&str], target: &str) -> Option<usize> {
-    items.iter().position(|&item| item == target)
+/// Finds an item in a list and returns its index
+pub fn find_item<T: PartialEq>(items: &[T], target: &T) -> HelloResult<usize> {
+    items.iter()
+        .position(|item| item == target)
+        .ok_or(HelloError::NotFound)
 }
 
 #[cfg(test)]
@@ -49,22 +70,46 @@ mod tests {
     }
 
     #[test]
-    fn test_greet_user() {
-        assert_eq!(greet_user(Some("Alice")).unwrap(), "Hello, Alice!");
-        assert_eq!(greet_user(None).unwrap(), "Hello, Anonymous!");
-        assert!(greet_user(Some("")).is_err());
+    fn test_greet_user_valid() {
+        let result = greet_user("Alice");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "Hello, Alice!");
     }
 
     #[test]
-    fn test_safe_divide() {
-        assert_eq!(safe_divide(10.0, 2.0).unwrap(), 5.0);
-        assert!(safe_divide(10.0, 0.0).is_err());
+    fn test_greet_user_empty() {
+        let result = greet_user("");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), HelloError::InvalidInput("Name cannot be empty".to_string()));
     }
 
     #[test]
-    fn test_find_item() {
-        let items = ["apple", "banana", "cherry"];
-        assert_eq!(find_item(&items, "banana"), Some(1));
-        assert_eq!(find_item(&items, "grape"), None);
+    fn test_safe_divide_success() {
+        let result = safe_divide(10.0, 2.0);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_safe_divide_by_zero() {
+        let result = safe_divide(10.0, 0.0);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), HelloError::DivisionByZero);
+    }
+
+    #[test]
+    fn test_find_item_found() {
+        let items = vec![1, 2, 3, 4, 5];
+        let result = find_item(&items, &3);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 2);
+    }
+
+    #[test]
+    fn test_find_item_not_found() {
+        let items = vec![1, 2, 3, 4, 5];
+        let result = find_item(&items, &6);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), HelloError::NotFound);
     }
 }

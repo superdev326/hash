@@ -1,6 +1,4 @@
 use xxhash_migration::*;
-use std::fs;
-use std::process::Command;
 
 const TEST_STRINGS: &[&str] = &[
     "",

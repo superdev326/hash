@@ -1,47 +1,54 @@
-use xxhash_migration::*;
+use xxhash_migration::{hello_world, greet_user, safe_divide, find_item, HelloResult};
 
-fn main() {
-    println!("=== Hello World Template ===");
-    
+fn main() -> HelloResult<()> {
+    println!("=== Hello World Template Demonstration ===\n");
+
     // Basic hello world
-    println!("{}", hello_world());
-    
-    // Error handling demonstration
-    match greet_user(Some("Rust Developer")) {
-        Ok(greeting) => println!("{}", greeting),
-        Err(e) => eprintln!("Error: {}", e),
+    println!("1. Basic greeting:");
+    println!("   {}", hello_world());
+    println!();
+
+    // User greeting with error handling
+    println!("2. User greetings:");
+    match greet_user("Alice") {
+        Ok(greeting) => println!("   Success: {}", greeting),
+        Err(e) => println!("   Error: {}", e),
     }
     
-    match greet_user(None) {
-        Ok(greeting) => println!("{}", greeting),
-        Err(e) => eprintln!("Error: {}", e),
+    match greet_user("") {
+        Ok(greeting) => println!("   Success: {}", greeting),
+        Err(e) => println!("   Error: {}", e),
     }
-    
-    // Result<T,E> demonstration
-    println!("Division results:");
-    match safe_divide(20.0, 4.0) {
-        Ok(result) => println!("20.0 / 4.0 = {}", result),
-        Err(e) => eprintln!("Error: {}", e),
+    println!();
+
+    // Safe division
+    println!("3. Safe division:");
+    match safe_divide(10.0, 2.0) {
+        Ok(result) => println!("   10.0 / 2.0 = {}", result),
+        Err(e) => println!("   Error: {}", e),
     }
     
     match safe_divide(10.0, 0.0) {
-        Ok(result) => println!("10.0 / 0.0 = {}", result),
-        Err(e) => eprintln!("Error: {}", e),
+        Ok(result) => println!("   10.0 / 0.0 = {}", result),
+        Err(e) => println!("   Error: {}", e),
+    }
+    println!();
+
+    // Finding items
+    println!("4. Finding items:");
+    let numbers = vec![1, 2, 3, 4, 5];
+    
+    match find_item(&numbers, &3) {
+        Ok(index) => println!("   Found 3 at index: {}", index),
+        Err(e) => println!("   Error: {}", e),
     }
     
-    // Option<T> demonstration
-    let fruits = ["apple", "banana", "cherry", "date"];
-    println!("Searching for fruits:");
-    
-    match find_item(&fruits, "banana") {
-        Some(index) => println!("Found 'banana' at index {}", index),
-        None => println!("'banana' not found"),
+    match find_item(&numbers, &10) {
+        Ok(index) => println!("   Found 10 at index: {}", index),
+        Err(e) => println!("   Error: {}", e),
     }
+
+    println!("\n=== All tests completed successfully ===");
     
-    match find_item(&fruits, "grape") {
-        Some(index) => println!("Found 'grape' at index {}", index),
-        None => println!("'grape' not found"),
-    }
-    
-    println!("=== Template Complete ===");
+    Ok(())
 }
