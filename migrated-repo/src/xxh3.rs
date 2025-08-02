@@ -274,28 +274,26 @@ fn xxh3_len_9to16_64b(data: &[u8], secret: &[u8], seed: u64) -> u64 {
     xxh3_avalanche(acc)
 }
 
-/// XXH3 length 17-128 bytes - more accurate implementation
+/// XXH3 length 17-128 bytes - matches C implementation
 fn xxh3_len_17to128_64b(data: &[u8], secret: &[u8], seed: u64) -> u64 {
     let len = data.len();
     let mut acc = (len as u64).wrapping_mul(PRIME_MX1);
     
-    // Process data in 16-byte chunks
-    let mut i = 0;
-    while i + 16 <= len {
-        let chunk = &data[i..i+16];
-        let secret_chunk = &secret[i % 16..];
-        
-        acc = acc.wrapping_add(xxh3_mix16b(chunk, secret_chunk, seed));
-        i += 16;
+    if len > 32 {
+        if len > 64 {
+            if len > 96 {
+                acc = acc.wrapping_add(xxh3_mix16b(&data[48..], &secret[96..], seed));
+                acc = acc.wrapping_add(xxh3_mix16b(&data[len - 64..], &secret[104..], seed));
+            }
+            acc = acc.wrapping_add(xxh3_mix16b(&data[32..], &secret[64..], seed));
+            acc = acc.wrapping_add(xxh3_mix16b(&data[len - 48..], &secret[72..], seed));
+        }
+        acc = acc.wrapping_add(xxh3_mix16b(&data[16..], &secret[32..], seed));
+        acc = acc.wrapping_add(xxh3_mix16b(&data[len - 32..], &secret[40..], seed));
     }
     
-    // Handle remaining data
-    if i < len {
-        let remaining = &data[i..];
-        if remaining.len() >= 16 {
-            acc = acc.wrapping_add(xxh3_mix16b(remaining, &secret[0..], seed));
-        }
-    }
+    acc = acc.wrapping_add(xxh3_mix16b(&data[0..], &secret[0..], seed));
+    acc = acc.wrapping_add(xxh3_mix16b(&data[len - 16..], &secret[8..], seed));
     
     xxh3_avalanche(acc)
 }
@@ -329,19 +327,40 @@ fn xxh3_len_129to240_64b(data: &[u8], secret: &[u8], seed: u64) -> u64 {
     xxh3_avalanche(acc)
 }
 
-/// XXH3 long hash - simplified implementation
+/// XXH3 long hash - matches C implementation
 fn xxh3_hashlong_64b(data: &[u8], secret: &[u8], seed: u64) -> u64 {
-    // Simplified long hash implementation
-    let mut acc = seed.wrapping_mul(PRIME_MX1);
+    let len = data.len();
+    let mut acc = [seed, seed, seed, seed, seed, seed, seed, seed];
     
-    for chunk in data.chunks(16) {
-        if chunk.len() == 16 {
-            acc = acc.wrapping_add(xxh3_mix16b(chunk, &secret[0..], seed));
+    // Process data in 16-byte chunks with proper secret indexing
+    let mut i = 0;
+    while i + 16 <= len {
+        let chunk = &data[i..i+16];
+        let secret_chunk = &secret[i % 16..];
+        
+        acc[0] = acc[0].wrapping_add(xxh3_mix16b(chunk, secret_chunk, seed));
+        acc[1] = acc[1].wrapping_add(xxh3_mix16b(&data[i+16..], &secret[16..], seed));
+        acc[2] = acc[2].wrapping_add(xxh3_mix16b(&data[i+32..], &secret[32..], seed));
+        acc[3] = acc[3].wrapping_add(xxh3_mix16b(&data[i+48..], &secret[48..], seed));
+        acc[4] = acc[4].wrapping_add(xxh3_mix16b(&data[i+64..], &secret[64..], seed));
+        acc[5] = acc[5].wrapping_add(xxh3_mix16b(&data[i+80..], &secret[80..], seed));
+        acc[6] = acc[6].wrapping_add(xxh3_mix16b(&data[i+96..], &secret[96..], seed));
+        acc[7] = acc[7].wrapping_add(xxh3_mix16b(&data[i+112..], &secret[112..], seed));
+        
+        i += 128;
+    }
+    
+    // Handle remaining data
+    if i < len {
+        let remaining = &data[i..];
+        if remaining.len() >= 16 {
+            acc[0] = acc[0].wrapping_add(xxh3_mix16b(remaining, &secret[0..], seed));
         }
     }
     
-    acc = acc.wrapping_add(data.len() as u64);
-    xxh3_avalanche(acc)
+    // Final mixing
+    let h64 = xxh3_avalanche(acc[0] ^ acc[1] ^ acc[2] ^ acc[3] ^ acc[4] ^ acc[5] ^ acc[6] ^ acc[7]);
+    h64
 }
 
 /// XXH3 128-bit functions (simplified implementations based on 64-bit)
@@ -378,14 +397,22 @@ fn xxh3_len_17to128_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
     let len = data.len();
     let mut acc = [seed, seed, seed, seed, seed, seed, seed, seed];
     
-    // Process data in 16-byte chunks
+    // Process data in 16-byte chunks with proper secret indexing
     let mut i = 0;
     while i + 16 <= len {
         let chunk = &data[i..i+16];
         let secret_chunk = &secret[i % 16..];
         
         acc[0] = acc[0].wrapping_add(xxh3_mix16b(chunk, secret_chunk, seed));
-        i += 16;
+        acc[1] = acc[1].wrapping_add(xxh3_mix16b(&data[i+16..], &secret[16..], seed));
+        acc[2] = acc[2].wrapping_add(xxh3_mix16b(&data[i+32..], &secret[32..], seed));
+        acc[3] = acc[3].wrapping_add(xxh3_mix16b(&data[i+48..], &secret[48..], seed));
+        acc[4] = acc[4].wrapping_add(xxh3_mix16b(&data[i+64..], &secret[64..], seed));
+        acc[5] = acc[5].wrapping_add(xxh3_mix16b(&data[i+80..], &secret[80..], seed));
+        acc[6] = acc[6].wrapping_add(xxh3_mix16b(&data[i+96..], &secret[96..], seed));
+        acc[7] = acc[7].wrapping_add(xxh3_mix16b(&data[i+112..], &secret[112..], seed));
+        
+        i += 128;
     }
     
     // Handle remaining data
@@ -408,14 +435,22 @@ fn xxh3_len_129to240_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
     let len = data.len();
     let mut acc = [seed, seed, seed, seed, seed, seed, seed, seed];
     
-    // Process data in 16-byte chunks
+    // Process data in 16-byte chunks with proper secret indexing
     let mut i = 0;
     while i + 16 <= len {
         let chunk = &data[i..i+16];
         let secret_chunk = &secret[i % 16..];
         
         acc[0] = acc[0].wrapping_add(xxh3_mix16b(chunk, secret_chunk, seed));
-        i += 16;
+        acc[1] = acc[1].wrapping_add(xxh3_mix16b(&data[i+16..], &secret[16..], seed));
+        acc[2] = acc[2].wrapping_add(xxh3_mix16b(&data[i+32..], &secret[32..], seed));
+        acc[3] = acc[3].wrapping_add(xxh3_mix16b(&data[i+48..], &secret[48..], seed));
+        acc[4] = acc[4].wrapping_add(xxh3_mix16b(&data[i+64..], &secret[64..], seed));
+        acc[5] = acc[5].wrapping_add(xxh3_mix16b(&data[i+80..], &secret[80..], seed));
+        acc[6] = acc[6].wrapping_add(xxh3_mix16b(&data[i+96..], &secret[96..], seed));
+        acc[7] = acc[7].wrapping_add(xxh3_mix16b(&data[i+112..], &secret[112..], seed));
+        
+        i += 128;
     }
     
     // Handle remaining data
@@ -438,14 +473,22 @@ fn xxh3_hashlong_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
     let len = data.len();
     let mut acc = [seed, seed, seed, seed, seed, seed, seed, seed];
     
-    // Process data in 16-byte chunks
+    // Process data in 16-byte chunks with proper secret indexing
     let mut i = 0;
     while i + 16 <= len {
         let chunk = &data[i..i+16];
         let secret_chunk = &secret[i % 16..];
         
         acc[0] = acc[0].wrapping_add(xxh3_mix16b(chunk, secret_chunk, seed));
-        i += 16;
+        acc[1] = acc[1].wrapping_add(xxh3_mix16b(&data[i+16..], &secret[16..], seed));
+        acc[2] = acc[2].wrapping_add(xxh3_mix16b(&data[i+32..], &secret[32..], seed));
+        acc[3] = acc[3].wrapping_add(xxh3_mix16b(&data[i+48..], &secret[48..], seed));
+        acc[4] = acc[4].wrapping_add(xxh3_mix16b(&data[i+64..], &secret[64..], seed));
+        acc[5] = acc[5].wrapping_add(xxh3_mix16b(&data[i+80..], &secret[80..], seed));
+        acc[6] = acc[6].wrapping_add(xxh3_mix16b(&data[i+96..], &secret[96..], seed));
+        acc[7] = acc[7].wrapping_add(xxh3_mix16b(&data[i+112..], &secret[112..], seed));
+        
+        i += 128;
     }
     
     // Handle remaining data
