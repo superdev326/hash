@@ -25,6 +25,12 @@ pub const XXH3_MIDSIZE_LASTOFFSET: usize = 17;
 pub const PRIME_MX1: u64 = 0x165667919E3779F9;
 pub const PRIME_MX2: u64 = 0x9FB21C651E98DF25;
 
+// XXH3 prime constants from C source
+pub const XXH_PRIME64_1: u64 = 0x9E3779B185EBCA87;
+pub const XXH_PRIME64_2: u64 = 0xC2B2AE3D27D4EB4F;
+pub const XXH_PRIME64_4: u64 = 0x85EBCA77C2B2AE63;
+pub const XXH_PRIME32_2: u32 = 0x85EBCA77;
+
 // Default secret for XXH3 - exact copy from C source
 pub const XXH3_DEFAULT_SECRET: [u8; XXH3_SECRET_DEFAULT_SIZE] = [
     0xb8, 0xfe, 0x6c, 0x39, 0x23, 0xa4, 0x4b, 0xbe, 0x7c, 0x01, 0x81, 0x2c, 0xf7, 0x21, 0xad, 0x1c,
@@ -91,4 +97,32 @@ pub fn xxh3_avalanche(mut h: u64) -> u64 {
     h = h.wrapping_mul(PRIME_MX1);
     h ^= h >> 32;
     h
+}
+
+// XXH3 xorshift function
+#[inline]
+pub fn xxh_xorshift64(v64: u64, shift: i32) -> u64 {
+    v64 ^ (v64 >> shift)
+}
+
+// XXH3 128-bit multiplication function
+#[inline]
+pub fn xxh_mult64to128(lhs: u64, rhs: u64) -> (u64, u64) {
+    // Portable scalar implementation
+    let lo_lo = (lhs & 0xFFFFFFFF).wrapping_mul(rhs & 0xFFFFFFFF);
+    let hi_lo = (lhs >> 32).wrapping_mul(rhs & 0xFFFFFFFF);
+    let lo_hi = (lhs & 0xFFFFFFFF).wrapping_mul(rhs >> 32);
+    let hi_hi = (lhs >> 32).wrapping_mul(rhs >> 32);
+
+    let cross = (lo_lo >> 32) + (hi_lo & 0xFFFFFFFF) + lo_hi;
+    let upper = (hi_lo >> 32) + (cross >> 32) + hi_hi;
+    let lower = (cross << 32) | (lo_lo & 0xFFFFFFFF);
+
+    (lower, upper)
+}
+
+// XXH3 32-bit to 64-bit multiplication
+#[inline]
+pub fn xxh_mult32to64(x: u64, y: u64) -> u64 {
+    (x & 0xFFFFFFFF).wrapping_mul(y & 0xFFFFFFFF)
 }

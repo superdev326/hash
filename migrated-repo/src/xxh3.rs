@@ -368,53 +368,111 @@ fn xxh3_len_0to16_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
     let len = data.len();
     
     if len == 0 {
-        // Empty case - matches C implementation
-        XXH128Hash::new(
-            read_u64_le(&secret[64..]) ^ seed,
-            read_u64_le(&secret[72..]) ^ seed,
-        )
+        // Empty string case
+        let bitflipl = read_u64_le(&secret[64..]) ^ read_u64_le(&secret[72..]);
+        let bitfliph = read_u64_le(&secret[80..]) ^ read_u64_le(&secret[88..]);
+        let low64 = xxh64_avalanche(seed ^ bitflipl);
+        let high64 = xxh64_avalanche(seed ^ bitfliph);
+        XXH128Hash::new(high64, low64)
+    } else if len > 8 {
+        xxh3_len_9to16_128b(data, secret, seed)
+    } else if len >= 4 {
+        xxh3_len_4to8_128b(data, secret, seed)
     } else {
-        // For all non-empty cases, low 64 bits = XXH3_64 value
-        let low64 = xxh3_len_0to16_64b(data, secret, seed);
-        
-        if len <= 8 {
-            // For 1-8 bytes, calculate high 64 bits differently
-            let input_lo = if len >= 4 { read_u32_le(&data[0..]) as u64 } else { data[0] as u64 };
-            let input_hi = if len >= 4 { read_u32_le(&data[len.saturating_sub(4)..]) as u64 } else { data[len-1] as u64 };
-            
-            let bitflipl = (read_u64_le(&secret[64..]) ^ read_u64_le(&secret[72..])).wrapping_add(seed);
-            let bitfliph = (read_u64_le(&secret[80..]) ^ read_u64_le(&secret[88..])).wrapping_sub(seed);
-            
-            let keyed_lo = input_lo ^ bitflipl;
-            let keyed_hi = input_hi ^ bitfliph;
-            
-            XXH128Hash::new(
-                xxh3_avalanche(keyed_lo),
-                low64,
-            )
-        } else {
-            // For 9-16 bytes, calculate high 64 bits using different secret positions
-            let input_lo = read_u64_le(&data[0..]);
-            let input_hi = read_u64_le(&data[len - 8..]);
-            let bitflipl = (read_u64_le(&secret[24..]) ^ read_u64_le(&secret[32..])).wrapping_add(seed);
-            let bitfliph = (read_u64_le(&secret[40..]) ^ read_u64_le(&secret[48..])).wrapping_sub(seed);
-            let keyed_lo = input_lo ^ bitflipl;
-            let keyed_hi = input_hi ^ bitfliph;
-            
-            XXH128Hash::new(
-                xxh3_avalanche(keyed_lo),
-                low64,
-            )
-        }
+        xxh3_len_1to3_128b(data, secret, seed)
     }
+}
+
+fn xxh3_len_1to3_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
+    let len = data.len();
+    assert!(len >= 1 && len <= 3);
+    
+    let c1 = data[0];
+    let c2 = data[len >> 1];
+    let c3 = data[len - 1];
+    
+    let combinedl = ((c1 as u32) << 16) | ((c2 as u32) << 24) | ((c3 as u32) << 0) | ((len as u32) << 8);
+    let combinedh = rotl32(combinedl.swap_bytes(), 13);
+    
+    let bitflipl = (read_u32_le(&secret[0..]) ^ read_u32_le(&secret[4..])) as u64 + seed;
+    let bitfliph = (read_u32_le(&secret[8..]) ^ read_u32_le(&secret[12..])) as u64 - seed;
+    
+    let keyed_lo = combinedl as u64 ^ bitflipl;
+    let keyed_hi = combinedh as u64 ^ bitfliph;
+    
+    XXH128Hash::new(
+        xxh64_avalanche(keyed_hi),
+        xxh64_avalanche(keyed_lo),
+    )
+}
+
+fn xxh3_len_4to8_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
+    let len = data.len();
+    assert!(len >= 4 && len <= 8);
+    
+    let mut seed = seed;
+    seed ^= (seed.swap_bytes() as u64) << 32;
+    
+    let input_lo = read_u32_le(&data[0..]) as u64;
+    let input_hi = read_u32_le(&data[len - 4..]) as u64;
+    let input_64 = input_lo + (input_hi << 32);
+    
+    let bitflip = (read_u64_le(&secret[16..]) ^ read_u64_le(&secret[24..])) + seed;
+    let keyed = input_64 ^ bitflip;
+    
+    let (low64, high64) = xxh_mult64to128(keyed, XXH_PRIME64_1 + (len as u64 << 2));
+    
+    let mut m128_low = low64;
+    let mut m128_high = high64;
+    
+    m128_high += m128_low << 1;
+    m128_low ^= m128_high >> 3;
+    
+    m128_low = xxh_xorshift64(m128_low, 35);
+    m128_low = m128_low.wrapping_mul(PRIME_MX2);
+    m128_low = xxh_xorshift64(m128_low, 28);
+    m128_high = xxh3_avalanche(m128_high);
+    
+    XXH128Hash::new(m128_high, m128_low)
+}
+
+fn xxh3_len_9to16_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
+    let len = data.len();
+    assert!(len >= 9 && len <= 16);
+    
+    let bitflipl = (read_u64_le(&secret[32..]) ^ read_u64_le(&secret[40..])) - seed;
+    let bitfliph = (read_u64_le(&secret[48..]) ^ read_u64_le(&secret[56..])) + seed;
+    
+    let input_lo = read_u64_le(&data[0..]);
+    let mut input_hi = read_u64_le(&data[len - 8..]);
+    
+    let (low64, high64) = xxh_mult64to128(input_lo ^ input_hi ^ bitflipl, XXH_PRIME64_1);
+    
+    let mut m128_low = low64 + ((len - 1) as u64 << 54);
+    let mut m128_high = high64;
+    
+    input_hi ^= bitfliph;
+    
+    // Add the high 32 bits of input_hi to the high 32 bits of m128, then
+    // add the long product of the low 32 bits of input_hi and XXH_PRIME32_2 to
+    // the high 64 bits of m128.
+    m128_high += (input_hi & 0xFFFFFFFF00000000) + xxh_mult32to64(input_hi as u64, XXH_PRIME32_2 as u64);
+    
+    m128_low ^= m128_high.swap_bytes();
+    
+    let (h128_low, h128_high) = xxh_mult64to128(m128_low, XXH_PRIME64_2);
+    let final_high = h128_high + m128_high * XXH_PRIME64_2;
+    
+    XXH128Hash::new(
+        xxh3_avalanche(final_high),
+        xxh3_avalanche(h128_low),
+    )
 }
 
 fn xxh3_len_17to128_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
-    // For longer strings, low 64 bits = XXH3_64 value
-    let low64 = xxh3_len_17to128_64b(data, secret, seed);
-    
-    // Calculate high 64 bits using different approach
     let len = data.len();
+    assert!(len >= 17 && len <= 128);
+    
     let mut acc = [seed, seed, seed, seed, seed, seed, seed, seed];
     
     // Process data in 16-byte chunks
@@ -435,18 +493,18 @@ fn xxh3_len_17to128_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
         }
     }
     
-    // Final mixing for high 64 bits
+    // Final mixing
     let h128 = xxh3_avalanche(acc[0] ^ acc[1] ^ acc[2] ^ acc[3] ^ acc[4] ^ acc[5] ^ acc[6] ^ acc[7]);
+    let l128 = xxh3_avalanche(acc[0].wrapping_add(acc[1]).wrapping_add(acc[2]).wrapping_add(acc[3])
+                              .wrapping_add(acc[4]).wrapping_add(acc[5]).wrapping_add(acc[6]).wrapping_add(acc[7]));
     
-    XXH128Hash::new(h128, low64)
+    XXH128Hash::new(h128, l128)
 }
 
 fn xxh3_len_129to240_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
-    // For longer strings, low 64 bits = XXH3_64 value
-    let low64 = xxh3_len_129to240_64b(data, secret, seed);
-    
-    // Calculate high 64 bits using different approach
     let len = data.len();
+    assert!(len >= 129 && len <= 240);
+    
     let mut acc = [seed, seed, seed, seed, seed, seed, seed, seed];
     
     // Process data in 16-byte chunks
@@ -467,18 +525,18 @@ fn xxh3_len_129to240_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
         }
     }
     
-    // Final mixing for high 64 bits
+    // Final mixing
     let h128 = xxh3_avalanche(acc[0] ^ acc[1] ^ acc[2] ^ acc[3] ^ acc[4] ^ acc[5] ^ acc[6] ^ acc[7]);
+    let l128 = xxh3_avalanche(acc[0].wrapping_add(acc[1]).wrapping_add(acc[2]).wrapping_add(acc[3])
+                              .wrapping_add(acc[4]).wrapping_add(acc[5]).wrapping_add(acc[6]).wrapping_add(acc[7]));
     
-    XXH128Hash::new(h128, low64)
+    XXH128Hash::new(h128, l128)
 }
 
 fn xxh3_hashlong_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
-    // For longer strings, low 64 bits = XXH3_64 value
-    let low64 = xxh3_hashlong_64b(data, secret, seed);
-    
-    // Calculate high 64 bits using different approach
     let len = data.len();
+    assert!(len > 240);
+    
     let mut acc = [seed, seed, seed, seed, seed, seed, seed, seed];
     
     // Process data in 16-byte chunks
@@ -499,13 +557,34 @@ fn xxh3_hashlong_128b(data: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
         }
     }
     
-    // Final mixing for high 64 bits
+    // Final mixing
     let h128 = xxh3_avalanche(acc[0] ^ acc[1] ^ acc[2] ^ acc[3] ^ acc[4] ^ acc[5] ^ acc[6] ^ acc[7]);
+    let l128 = xxh3_avalanche(acc[0].wrapping_add(acc[1]).wrapping_add(acc[2]).wrapping_add(acc[3])
+                              .wrapping_add(acc[4]).wrapping_add(acc[5]).wrapping_add(acc[6]).wrapping_add(acc[7]));
     
-    XXH128Hash::new(h128, low64)
+    XXH128Hash::new(h128, l128)
 }
 
 // Helper functions
+
+fn xxh128_mix32b(acc: XXH128Hash, input_1: &[u8], input_2: &[u8], secret: &[u8], seed: u64) -> XXH128Hash {
+    let input_lo = read_u64_le(input_1);
+    let input_hi = read_u64_le(input_2);
+    
+    let secret_lo = read_u64_le(&secret[0..]);
+    let secret_hi = read_u64_le(&secret[8..]);
+    
+    let keyed_lo = input_lo ^ secret_lo;
+    let keyed_hi = input_hi ^ secret_hi;
+    
+    let mixed_lo = xxh3_mul128_fold64(keyed_lo, seed);
+    let mixed_hi = xxh3_mul128_fold64(keyed_hi, seed);
+    
+    XXH128Hash::new(
+        acc.high.wrapping_add(mixed_hi),
+        acc.low.wrapping_add(mixed_lo),
+    )
+}
 
 /// XXH3 mix 16 bytes - matches C implementation
 fn xxh3_mix16b(input: &[u8], secret: &[u8], seed: u64) -> u64 {
